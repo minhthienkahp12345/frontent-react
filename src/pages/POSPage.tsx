@@ -47,6 +47,9 @@ export default function POSPage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [loggingIn, setLoggingIn] = useState(false)
 
   const loadMenu = useCallback(async () => {
     try {
@@ -116,6 +119,10 @@ export default function POSPage() {
 
   const submitOrder = async () => {
     if (!cart.length) return
+    if (!localStorage.getItem('accessToken')) {
+      setError('Bạn cần đăng nhập trước khi thanh toán.')
+      return
+    }
     try {
       setSubmitting(true)
       setError('')
@@ -131,11 +138,42 @@ export default function POSPage() {
       setSuccessNumber(response.data.orderNumber)
       setCart([])
       await loadOrders()
-    } catch {
-      setError('Thanh toán thất bại. Vui lòng kiểm tra món ăn và thử lại.')
+    } catch (requestError) {
+      if (requestError && typeof requestError === 'object' && 'response' in requestError) {
+        const status = (requestError as { response?: { status?: number } }).response?.status
+        setError(status === 401
+          ? 'Phiên đăng nhập không hợp lệ. Vui lòng đăng nhập lại.'
+          : 'Thanh toán thất bại. Vui lòng kiểm tra món ăn và thử lại.')
+      } else {
+        setError('Thanh toán thất bại. Vui lòng kiểm tra món ăn và thử lại.')
+      }
     } finally {
       setSubmitting(false)
     }
+  }
+
+  const login = async () => {
+    try {
+      setLoggingIn(true)
+      setError('')
+      const response = await api.post<{ accessToken: string }>('/auth/login', {
+        username,
+        password,
+      })
+      localStorage.setItem('accessToken', response.data.accessToken)
+      setPassword('')
+      await loadOrders()
+    } catch {
+      localStorage.removeItem('accessToken')
+      setError('Tên đăng nhập hoặc mật khẩu không đúng.')
+    } finally {
+      setLoggingIn(false)
+    }
+  }
+
+  const logout = () => {
+    localStorage.removeItem('accessToken')
+    setOrders([])
   }
 
   const completeOrder = async (id: number) => {
@@ -152,7 +190,10 @@ export default function POSPage() {
       <header className="border-b bg-white">
         <div className="mx-auto flex max-w-[1500px] items-center justify-between px-5 py-4">
           <div><p className="text-xl font-black">Canteen<span className="text-orange-500">POS</span></p><p className="text-xs text-slate-400">Quầy thu ngân</p></div>
-          <button onClick={() => setShowOrders(true)} className="rounded-xl bg-orange-50 px-4 py-2 text-sm font-bold text-orange-600">Đơn hàng hôm nay ({orders.length})</button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowOrders(true)} className="rounded-xl bg-orange-50 px-4 py-2 text-sm font-bold text-orange-600">Đơn hàng hôm nay ({orders.length})</button>
+            {localStorage.getItem('accessToken') ? <button onClick={logout} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500">Đăng xuất</button> : <span className="rounded-xl bg-red-50 px-4 py-2 text-xs font-bold text-red-500">Chưa đăng nhập</span>}
+          </div>
         </div>
       </header>
 
@@ -190,6 +231,8 @@ export default function POSPage() {
           </aside>
         </div>
       </div>
+
+      {!localStorage.getItem('accessToken') && <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/20 p-4"><form onSubmit={(event) => { event.preventDefault(); void login() }} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"><h2 className="text-xl font-black">Đăng nhập thu ngân</h2><p className="mt-1 text-sm text-slate-500">Đăng nhập để thanh toán và quản lý đơn hàng.</p><input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Tên đăng nhập" required className="mt-5 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-orange-400" /><input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mật khẩu" type="password" required className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-orange-400" /><button disabled={loggingIn} className="mt-4 w-full rounded-xl bg-orange-500 py-3 font-black text-white disabled:opacity-50">{loggingIn ? 'Đang đăng nhập...' : 'Đăng nhập'}</button></form></div>}
 
       {showOrders && <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setShowOrders(false)}><div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5" onClick={(event) => event.stopPropagation()}><div className="mb-5 flex justify-between"><h2 className="text-xl font-black">Đơn hàng trong ngày</h2><button onClick={() => setShowOrders(false)} className="text-2xl text-slate-400">×</button></div>{!orders.length ? <p className="py-10 text-center text-slate-400">Chưa có đơn hàng.</p> : <div className="space-y-3">{orders.map((order) => <div key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4"><div><p className="font-black">STT #{order.orderNumber}</p><p className="text-xs text-slate-400">{new Date(order.createdAt).toLocaleTimeString('vi-VN')} · {money(order.totalAmount)}</p></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-xs font-bold ${order.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : order.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{order.status}</span>{order.status === 'PENDING' && <button onClick={() => void completeOrder(order.id)} className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-white">Hoàn thành</button>}</div></div>)}</div>}</div></div>}
       {successNumber !== null && <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-xl"><p className="text-5xl">✓</p><h2 className="mt-4 text-2xl font-black">Thanh toán thành công</h2><p className="mt-2 text-slate-500">Số thứ tự của bạn là</p><p className="my-3 text-5xl font-black text-orange-500">#{successNumber}</p><button onClick={() => setSuccessNumber(null)} className="w-full rounded-xl bg-orange-500 py-3 font-bold text-white">Đóng</button></div></div>}
