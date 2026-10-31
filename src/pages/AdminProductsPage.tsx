@@ -134,6 +134,7 @@ export default function AdminProductsPage() {
         <nav className="mb-8 flex flex-wrap items-center gap-2 text-sm font-bold">
           <a href="/admin/products" className="rounded-xl bg-orange-500 px-4 py-2 text-white shadow-lg shadow-orange-200">Quản lý menu</a>
           <a href="/admin/dashboard" className="rounded-xl px-4 py-2 text-slate-500 hover:bg-white">Báo cáo doanh thu</a>
+          <a href="/admin/users" className="rounded-xl px-4 py-2 text-slate-500 hover:bg-white">Tài khoản nhân viên</a>
         </nav>
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div><p className="text-sm font-bold text-orange-500">Quản trị viên</p><h1 className="text-3xl font-black">Quản lý menu</h1><p className="mt-1 text-sm text-slate-500">Thêm, chỉnh sửa và cập nhật trạng thái món ăn.</p></div>
