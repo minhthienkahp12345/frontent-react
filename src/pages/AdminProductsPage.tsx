@@ -16,7 +16,6 @@ type ProductForm = {
   category_id: string
   name: string
   price: string
-  image_url: string
   is_available: boolean
 }
 
@@ -24,7 +23,6 @@ const emptyForm: ProductForm = {
   category_id: '',
   name: '',
   price: '',
-  image_url: '',
   is_available: true,
 }
 
@@ -35,6 +33,7 @@ export default function AdminProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [form, setForm] = useState<ProductForm>(emptyForm)
+  const [imageFile, setImageFile] = useState<File | null>(null)
   const [editingId, setEditingId] = useState<number | null>(null)
   const [modalOpen, setModalOpen] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -66,17 +65,18 @@ export default function AdminProductsPage() {
 
   const openCreate = () => {
     setEditingId(null)
+    setImageFile(null)
     setForm({ ...emptyForm, category_id: categories[0] ? String(categories[0].id) : '' })
     setModalOpen(true)
   }
 
   const openEdit = (product: Product) => {
     setEditingId(product.id)
+    setImageFile(null)
     setForm({
       category_id: String(product.categoryId),
       name: product.name,
       price: String(Number(product.price)),
-      image_url: product.imageUrl ?? '',
       is_available: product.isAvailable,
     })
     setModalOpen(true)
@@ -95,15 +95,37 @@ export default function AdminProductsPage() {
         category_id: Number(form.category_id),
         name: form.name,
         price: Number(form.price),
-        image_url: form.image_url || undefined,
         is_available: form.is_available,
       }
-      if (editingId === null) await api.post('/products', payload)
-      else await api.put(`/products/${editingId}`, payload)
+      const response = editingId === null
+        ? await api.post<Product>('/products', payload)
+        : await api.put<Product>(`/products/${editingId}`, payload)
+      if (imageFile) {
+        const formData = new FormData()
+        formData.append('image', imageFile)
+        const token = localStorage.getItem('accessToken')
+        const uploadResponse = await fetch(
+          `http://127.0.0.1:3000/api/products/${response.data.id}/image`,
+          {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData,
+          },
+        )
+        if (!uploadResponse.ok) {
+          const body = await uploadResponse.json().catch(() => null) as { message?: string | string[] } | null
+          throw new Error(Array.isArray(body?.message) ? body.message.join(', ') : body?.message ?? 'Không thể tải ảnh lên')
+        }
+      }
       setModalOpen(false)
       await loadData()
-    } catch {
-      setError('Không thể lưu món ăn. Hãy kiểm tra dữ liệu nhập vào.')
+    } catch (requestError) {
+      const message = requestError instanceof Error
+        ? requestError.message
+        : requestError && typeof requestError === 'object' && 'response' in requestError
+        ? (requestError as { response?: { data?: { message?: string | string[] } } }).response?.data?.message
+        : undefined
+      setError(Array.isArray(message) ? message.join(', ') : message ?? 'Không thể lưu món ăn. Hãy kiểm tra dữ liệu nhập vào.')
     } finally {
       setSaving(false)
     }
@@ -131,11 +153,6 @@ export default function AdminProductsPage() {
   return (
     <main className="min-h-screen bg-slate-50 p-5 text-slate-900 sm:p-8">
       <div className="mx-auto max-w-7xl">
-        <nav className="mb-8 flex flex-wrap items-center gap-2 text-sm font-bold">
-          <a href="/admin/products" className="rounded-xl bg-orange-500 px-4 py-2 text-white shadow-lg shadow-orange-200">Quản lý menu</a>
-          <a href="/admin/dashboard" className="rounded-xl px-4 py-2 text-slate-500 hover:bg-white">Báo cáo doanh thu</a>
-          <a href="/admin/users" className="rounded-xl px-4 py-2 text-slate-500 hover:bg-white">Tài khoản nhân viên</a>
-        </nav>
         <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
           <div><p className="text-sm font-bold text-orange-500">Quản trị viên</p><h1 className="text-3xl font-black">Quản lý menu</h1><p className="mt-1 text-sm text-slate-500">Thêm, chỉnh sửa và cập nhật trạng thái món ăn.</p></div>
           <button onClick={openCreate} className="rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-white shadow-lg shadow-orange-200">+ Thêm món mới</button>
@@ -147,7 +164,7 @@ export default function AdminProductsPage() {
         </div>
       </div>
 
-      {modalOpen && <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/40 p-4"><form onSubmit={save} className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-black">{editingId === null ? 'Thêm món mới' : 'Chỉnh sửa món'}</h2><button type="button" onClick={() => setModalOpen(false)} className="text-2xl text-slate-400">×</button></div><div className="space-y-4"><label className="block text-sm font-bold">Tên món<input required value={form.name} onChange={(event) => updateForm('name', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 font-normal outline-none focus:border-orange-400" /></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-bold">Danh mục<select required value={form.category_id} onChange={(event) => updateForm('category_id', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 font-normal outline-none focus:border-orange-400"><option value="">Chọn danh mục</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label className="block text-sm font-bold">Giá<input required min="0" step="0.01" type="number" value={form.price} onChange={(event) => updateForm('price', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 font-normal outline-none focus:border-orange-400" /></label></div><label className="block text-sm font-bold">URL hình ảnh<input type="url" value={form.image_url} onChange={(event) => updateForm('image_url', event.target.value)} placeholder="https://..." className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 font-normal outline-none focus:border-orange-400" /></label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.is_available} onChange={(event) => updateForm('is_available', event.target.checked)} /> Còn hàng</label></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setModalOpen(false)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-500">Hủy</button><button disabled={saving} className="rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-white disabled:opacity-50">{saving ? 'Đang lưu...' : 'Lưu món'}</button></div></form></div>}
+      {modalOpen && <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/40 p-4"><form onSubmit={save} className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"><div className="mb-5 flex items-center justify-between"><h2 className="text-xl font-black">{editingId === null ? 'Thêm món mới' : 'Chỉnh sửa món'}</h2><button type="button" onClick={() => setModalOpen(false)} className="text-2xl text-slate-400">×</button></div><div className="space-y-4"><label className="block text-sm font-bold">Tên món<input required value={form.name} onChange={(event) => updateForm('name', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 font-normal outline-none focus:border-orange-400" /></label><div className="grid gap-4 sm:grid-cols-2"><label className="block text-sm font-bold">Danh mục<select required value={form.category_id} onChange={(event) => updateForm('category_id', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 font-normal outline-none focus:border-orange-400"><option value="">Chọn danh mục</option>{categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label><label className="block text-sm font-bold">Giá<input required min="0" step="0.01" type="number" value={form.price} onChange={(event) => updateForm('price', event.target.value)} className="mt-1 w-full rounded-xl border border-slate-200 px-3 py-3 font-normal outline-none focus:border-orange-400" /></label></div><label className="block text-sm font-bold">Tải ảnh từ máy<input required={editingId === null} type="file" accept="image/*" onChange={(event) => setImageFile(event.target.files?.[0] ?? null)} className="mt-1 block w-full rounded-xl border border-slate-200 p-2 text-sm font-normal" /><span className="mt-1 block text-xs font-normal text-slate-400">Chỉ dùng ảnh tải lên, tối đa 5MB.</span></label><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={form.is_available} onChange={(event) => updateForm('is_available', event.target.checked)} /> Còn hàng</label></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setModalOpen(false)} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-bold text-slate-500">Hủy</button><button disabled={saving} className="rounded-xl bg-orange-500 px-5 py-3 text-sm font-black text-white disabled:opacity-50">{saving ? 'Đang lưu...' : 'Lưu món'}</button></div></form></div>}
     </main>
   )
 }

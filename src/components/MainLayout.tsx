@@ -62,6 +62,7 @@ export default function MainLayout({ children }: { children: ReactNode }) {
               <a href="/admin/dashboard" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-orange-50 hover:text-orange-600">Báo cáo doanh thu</a>
               <a href="/admin/products" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-orange-50 hover:text-orange-600">Quản lý Menu Món</a>
               <a href="/admin/users" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-orange-50 hover:text-orange-600">Quản lý Nhân viên</a>
+              <a href="/admin/orders" className="rounded-lg px-3 py-2 text-slate-600 hover:bg-orange-50 hover:text-orange-600">Lịch sử đơn hàng</a>
             </>}
           </nav>
           <div className="flex items-center gap-2 text-sm">
