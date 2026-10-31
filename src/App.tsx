@@ -4,8 +4,13 @@ import AdminDashboardPage from './pages/AdminDashboardPage'
 import AdminUsersPage from './pages/AdminUsersPage'
 
 export default function App() {
-  if (window.location.pathname === '/admin/dashboard') return <AdminDashboardPage />
-  if (window.location.pathname === '/admin/products') return <AdminProductsPage />
-  if (window.location.pathname === '/admin/users') return <AdminUsersPage />
-  return <POSPage />
+  const page = window.location.pathname === '/admin/dashboard'
+    ? <AdminDashboardPage />
+    : window.location.pathname === '/admin/products'
+      ? <AdminProductsPage />
+      : window.location.pathname === '/admin/users'
+        ? <AdminUsersPage />
+        : <POSPage />
+  return <MainLayout>{page}</MainLayout>
 }
+import MainLayout from './components/MainLayout'

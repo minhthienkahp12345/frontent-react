@@ -36,3 +36,71 @@ svg {
   stroke-linejoin: round;
   stroke-width: 2;
 }
+
+.receipt-print {
+  font-family: "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.35;
+  width: 78mm;
+  padding: 3mm;
+  color: #000;
+}
+
+.receipt-print h1 {
+  font-size: 16px;
+  text-align: center;
+  margin: 0 0 8px;
+}
+
+.receipt-print p {
+  margin: 4px 0;
+}
+
+.receipt-print table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 10px 0;
+}
+
+.receipt-print th,
+.receipt-print td {
+  padding: 3px 0;
+  text-align: left;
+  vertical-align: top;
+}
+
+.receipt-print th:last-child,
+.receipt-print td:last-child {
+  text-align: right;
+}
+
+@media print {
+  body {
+    background: #fff;
+  }
+
+  body > * {
+    visibility: hidden !important;
+  }
+
+  #root {
+    visibility: visible !important;
+  }
+
+  #root > * {
+    visibility: hidden !important;
+  }
+
+  #root .receipt-print {
+    display: block !important;
+    visibility: visible !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+  }
+
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+}

@@ -23,9 +23,25 @@ type Order = {
   createdAt: string
 }
 type CreateOrderResponse = Order & { items: unknown[] }
+type Receipt = { order: Order; items: CartItem[]; paid: number; change: number }
 
 const money = (value: string | number) =>
   `${new Intl.NumberFormat('vi-VN').format(Number(value))}đ`
+
+const vietQrUrl = (amount: number, description: string) => {
+  const bankId = '970436'
+  const accountNo = '031204005543'
+  const template = 'MEnMt0S'
+  const accountName = 'BUI VAN THIEN'
+
+  const params = new URLSearchParams({
+    amount: String(Math.round(amount)),
+    addInfo: description,
+    accountName,
+  })
+
+  return `https://img.vietqr.io/image/${bankId}-${accountNo}-${template}.jpg?${params.toString()}`
+}
 
 function ProductImage({ product }: { product: Product }) {
   if (product.imageUrl) {
@@ -44,6 +60,9 @@ export default function POSPage() {
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'TRANSFER'>('CASH')
   const [showOrders, setShowOrders] = useState(false)
   const [successNumber, setSuccessNumber] = useState<number | null>(null)
+  const [successOrderId, setSuccessOrderId] = useState<number | null>(null)
+  const [cashReceived, setCashReceived] = useState('')
+  const [receipt, setReceipt] = useState<Receipt | null>(null)
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
@@ -95,6 +114,9 @@ export default function POSPage() {
   )
   const total = cart.reduce((sum, item) => sum + Number(item.price) * item.quantity, 0)
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0)
+  const received = Number(cashReceived) || 0
+  const change = Math.max(0, received - total)
+  const canPay = paymentMethod === 'TRANSFER' || received >= total
 
   const addProduct = (product: Product) => {
     setCart((current) => {
@@ -135,8 +157,12 @@ export default function POSPage() {
           ...(item.note ? { note: item.note } : {}),
         })),
       })
+      const paid = paymentMethod === 'CASH' ? received : total
+      setReceipt({ order: response.data, items: cart, paid, change: paymentMethod === 'CASH' ? change : 0 })
       setSuccessNumber(response.data.orderNumber)
+      setSuccessOrderId(response.data.id)
       setCart([])
+      setCashReceived('')
       await loadOrders()
     } catch (requestError) {
       if (requestError && typeof requestError === 'object' && 'response' in requestError) {
@@ -156,11 +182,13 @@ export default function POSPage() {
     try {
       setLoggingIn(true)
       setError('')
-      const response = await api.post<{ accessToken: string }>('/auth/login', {
+      const response = await api.post<{ accessToken: string; user: { username: string; fullName: string; role: 'CASHIER' | 'ADMIN' } }>('/auth/login', {
         username,
         password,
       })
       localStorage.setItem('accessToken', response.data.accessToken)
+      localStorage.setItem('authUser', JSON.stringify(response.data.user ?? { username, role: 'CASHIER' }))
+      window.dispatchEvent(new Event('auth-changed'))
       setPassword('')
       await loadOrders()
     } catch {
@@ -169,11 +197,6 @@ export default function POSPage() {
     } finally {
       setLoggingIn(false)
     }
-  }
-
-  const logout = () => {
-    localStorage.removeItem('accessToken')
-    setOrders([])
   }
 
   const completeOrder = async (id: number) => {
@@ -187,17 +210,8 @@ export default function POSPage() {
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-900">
-      <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-[1500px] items-center justify-between px-5 py-4">
-          <div><p className="text-xl font-black">Canteen<span className="text-orange-500">POS</span></p><p className="text-xs text-slate-400">Quầy thu ngân</p></div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setShowOrders(true)} className="rounded-xl bg-orange-50 px-4 py-2 text-sm font-bold text-orange-600">Đơn hàng hôm nay ({orders.length})</button>
-            {localStorage.getItem('accessToken') ? <button onClick={logout} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-500">Đăng xuất</button> : <span className="rounded-xl bg-red-50 px-4 py-2 text-xs font-bold text-red-500">Chưa đăng nhập</span>}
-          </div>
-        </div>
-      </header>
-
       <div className="mx-auto max-w-[1500px] p-5">
+        <div className="mb-5 flex justify-end print:hidden"><button onClick={() => setShowOrders(true)} className="rounded-xl bg-orange-50 px-4 py-2 text-sm font-bold text-orange-600">Đơn hàng hôm nay ({orders.length})</button></div>
         {error && <div className="mb-4 flex justify-between rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}<button onClick={() => setError('')}>×</button></div>}
         <div className="grid gap-6 lg:grid-cols-[3fr_2fr]">
           <section>
@@ -226,7 +240,8 @@ export default function POSPage() {
             <div className="border-t pt-4"><div className="mb-4 flex justify-between text-lg font-black"><span>Tổng cộng</span><span className="text-orange-500">{money(total)}</span></div>
               <div className="mb-4 grid grid-cols-2 gap-2">{([['EAT_IN', 'Ăn tại chỗ'], ['TAKE_AWAY', 'Mang đi']] as const).map(([value, label]) => <button key={value} onClick={() => setOrderType(value)} className={`rounded-xl border p-3 text-sm font-bold ${orderType === value ? 'border-orange-500 bg-orange-50 text-orange-600' : 'border-slate-200 text-slate-500'}`}>{label}</button>)}</div>
               <div className="mb-4 grid grid-cols-2 gap-2">{([['CASH', 'Tiền mặt'], ['TRANSFER', 'Chuyển khoản']] as const).map(([value, label]) => <button key={value} onClick={() => setPaymentMethod(value)} className={`rounded-xl border p-3 text-sm font-bold ${paymentMethod === value ? 'border-orange-500 bg-orange-50 text-orange-600' : 'border-slate-200 text-slate-500'}`}>{label}</button>)}</div>
-              <button disabled={!cart.length || submitting} onClick={() => void submitOrder()} className="w-full rounded-xl bg-orange-500 py-4 font-black text-white shadow-lg shadow-orange-200 disabled:opacity-40">{submitting ? 'Đang thanh toán...' : 'Thanh toán'}</button>
+              {paymentMethod === 'CASH' ? <div className="mb-4 rounded-xl bg-slate-50 p-3"><label className="text-sm font-bold">Tiền khách đưa<input type="number" min={total} value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} placeholder="Nhập số tiền" className="mt-2 w-full rounded-lg border bg-white px-3 py-2 outline-none focus:border-orange-400" /></label><div className="mt-2 flex flex-wrap gap-2">{[20000, 50000, 100000, 200000, 500000].map((amount) => <button type="button" key={amount} onClick={() => setCashReceived(String(amount))} className="rounded-lg bg-white px-2 py-1 text-xs font-bold text-slate-600">+{money(amount)}</button>)}</div><p className="mt-3 flex justify-between text-sm font-bold"><span>Tiền thừa trả khách</span><span className={received >= total ? 'text-emerald-600' : 'text-red-500'}>{received >= total ? money(change) : 'Chưa đủ tiền'}</span></p></div> : <div className="mb-4 rounded-xl bg-slate-50 p-3"><p className="text-sm font-bold">Quét mã VietQR để thanh toán</p><img src={vietQrUrl(total, `Don hang ${successOrderId ?? 'pending'}`)} alt="VietQR" className="mx-auto mt-2 h-44 w-44 rounded-lg object-cover" /></div>}
+              <button disabled={!cart.length || submitting || !canPay} onClick={() => void submitOrder()} className="w-full rounded-xl bg-orange-500 py-4 font-black text-white shadow-lg shadow-orange-200 disabled:opacity-40">{submitting ? 'Đang thanh toán...' : 'Thanh toán'}</button>
             </div>
           </aside>
         </div>
@@ -235,7 +250,8 @@ export default function POSPage() {
       {!localStorage.getItem('accessToken') && <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-900/20 p-4"><form onSubmit={(event) => { event.preventDefault(); void login() }} className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"><h2 className="text-xl font-black">Đăng nhập thu ngân</h2><p className="mt-1 text-sm text-slate-500">Đăng nhập để thanh toán và quản lý đơn hàng.</p><input value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Tên đăng nhập" required className="mt-5 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-orange-400" /><input value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Mật khẩu" type="password" required className="mt-3 w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-orange-400" /><button disabled={loggingIn} className="mt-4 w-full rounded-xl bg-orange-500 py-3 font-black text-white disabled:opacity-50">{loggingIn ? 'Đang đăng nhập...' : 'Đăng nhập'}</button></form></div>}
 
       {showOrders && <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setShowOrders(false)}><div className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-5" onClick={(event) => event.stopPropagation()}><div className="mb-5 flex justify-between"><h2 className="text-xl font-black">Đơn hàng trong ngày</h2><button onClick={() => setShowOrders(false)} className="text-2xl text-slate-400">×</button></div>{!orders.length ? <p className="py-10 text-center text-slate-400">Chưa có đơn hàng.</p> : <div className="space-y-3">{orders.map((order) => <div key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-slate-50 p-4"><div><p className="font-black">STT #{order.orderNumber}</p><p className="text-xs text-slate-400">{new Date(order.createdAt).toLocaleTimeString('vi-VN')} · {money(order.totalAmount)}</p></div><div className="flex items-center gap-3"><span className={`rounded-full px-3 py-1 text-xs font-bold ${order.status === 'PENDING' ? 'bg-amber-100 text-amber-700' : order.status === 'COMPLETED' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>{order.status}</span>{order.status === 'PENDING' && <button onClick={() => void completeOrder(order.id)} className="rounded-lg bg-emerald-500 px-3 py-2 text-xs font-bold text-white">Hoàn thành</button>}</div></div>)}</div>}</div></div>}
-      {successNumber !== null && <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 p-4"><div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-xl"><p className="text-5xl">✓</p><h2 className="mt-4 text-2xl font-black">Thanh toán thành công</h2><p className="mt-2 text-slate-500">Số thứ tự của bạn là</p><p className="my-3 text-5xl font-black text-orange-500">#{successNumber}</p><button onClick={() => setSuccessNumber(null)} className="w-full rounded-xl bg-orange-500 py-3 font-bold text-white">Đóng</button></div></div>}
+      {successNumber !== null && <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40 p-4 print:hidden"><div className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-xl"><p className="text-5xl">✓</p><h2 className="mt-4 text-2xl font-black">Thanh toán thành công</h2><p className="mt-2 text-slate-500">Số thứ tự của bạn là</p><p className="my-3 text-5xl font-black text-orange-500">#{successNumber}</p><div className="flex gap-2"><button onClick={() => window.print()} className="flex-1 rounded-xl border border-orange-500 py-3 font-bold text-orange-600">In Hóa Đơn</button><button onClick={() => setSuccessNumber(null)} className="flex-1 rounded-xl bg-orange-500 py-3 font-bold text-white">Đóng</button></div></div></div>}
+      {receipt && <div className="receipt-print hidden"><h1>CĂNG TIN SINH VIÊN</h1><p>Đơn #{receipt.order.orderNumber}</p><p>{new Date(receipt.order.createdAt).toLocaleString('vi-VN')}</p><table><thead><tr><th>Tên</th><th>SL</th><th>Đơn giá</th><th>Thành tiền</th></tr></thead><tbody>{receipt.items.map((item) => <tr key={item.id}><td>{item.name}</td><td>{item.quantity}</td><td>{money(item.price)}</td><td>{money(Number(item.price) * item.quantity)}</td></tr>)}</tbody></table><p>Tổng tiền: {money(receipt.order.totalAmount)}</p><p>PTTT: {receipt.order.paymentMethod === 'CASH' ? 'Tiền mặt' : 'Chuyển khoản'}</p><p>Tiền khách đưa: {money(receipt.paid)}</p><p>Tiền thừa trả lại: {money(receipt.change)}</p><p>Chúc quý khách ngon miệng!</p></div>}
     </main>
   )
 }
